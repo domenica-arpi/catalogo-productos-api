@@ -10,7 +10,8 @@
     "db:seed": "node scripts/seed.js",
     "db:test": "node scripts/test-db.js",
     "test:auth": "node scripts/test-auth.js",
-    "test": "npm run test:auth"
+    "test:products": "node scripts/test-products.js",
+    "test": "npm run test:auth && npm run test:products"
   },
   "repository": {
     "type": "git",

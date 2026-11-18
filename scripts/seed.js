@@ -32,20 +32,37 @@ const DEMO_PRODUCTS = [
   {
     name: 'Cuaderno universitario',
     description: 'Cuaderno de 100 hojas rayadas',
+    category: 'Papelería',
     price: 3.5,
     stock: 40,
   },
   {
     name: 'Bolígrafo azul',
     description: 'Bolígrafo de tinta gel',
+    category: 'Papelería',
     price: 1.25,
     stock: 120,
   },
   {
     name: 'Mochila ligera',
     description: 'Mochila para laptop de 15 pulgadas',
+    category: 'Accesorios',
     price: 28.9,
     stock: 15,
+  },
+  {
+    name: 'Auriculares Bluetooth',
+    description: 'Auriculares inalámbricos con micrófono',
+    category: 'Electrónica',
+    price: 45.0,
+    stock: 25,
+  },
+  {
+    name: 'Mouse ergonómico',
+    description: 'Mouse óptico con diseño ergonómico',
+    category: 'Electrónica',
+    price: 18.75,
+    stock: 50,
   },
 ];
 
@@ -82,16 +99,23 @@ async function seed() {
   for (const product of DEMO_PRODUCTS) {
     const result = await query(
       `
-        INSERT INTO products (name, description, price, stock)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO products (name, description, category, price, stock)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (name) DO UPDATE
           SET description = EXCLUDED.description,
+              category = EXCLUDED.category,
               price = EXCLUDED.price,
               stock = EXCLUDED.stock,
               updated_at = NOW()
         RETURNING id;
       `,
-      [product.name, product.description, product.price, product.stock]
+      [
+        product.name,
+        product.description,
+        product.category,
+        product.price,
+        product.stock,
+      ]
     );
 
     const productId = result.rows[0].id;
