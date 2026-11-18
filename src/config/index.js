@@ -3,7 +3,7 @@ require('dotenv').config();
 /**
  * Configuración centralizada de la aplicación.
  * Lee variables desde el entorno (.env).
- * La conexión a PostgreSQL se añadirá en una etapa posterior.
+ * La conexión a PostgreSQL se gestiona en ./database.js.
  */
 const config = {
   port: Number(process.env.PORT) || 3000,
