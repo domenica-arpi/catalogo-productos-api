@@ -42,6 +42,11 @@ async function migrate() {
 migrate()
   .catch((error) => {
     console.error('Error al migrar la base de datos:', error.message);
+    if (/Migración abortada/i.test(error.message)) {
+      console.error(
+        'Corrige los registros indicados y vuelve a ejecutar: npm run db:migrate'
+      );
+    }
     process.exitCode = 1;
   })
   .finally(async () => {

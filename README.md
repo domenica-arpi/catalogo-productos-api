@@ -129,6 +129,10 @@ sudo -u postgres createdb catalogo_productos
 npm run db:migrate
 ```
 
+La migración es idempotente y **no modifica automáticamente** precios, stock ni otros datos de negocio.  
+Si existen productos con `price <= 0`, la migración se aborta con un mensaje claro para corregirlos manualmente antes de aplicar `price > 0`.  
+Solo rellena `category = 'General'` cuando la columna nueva viene en `NULL` (bases de etapas anteriores).
+
 ### 3. (Opcional) Insertar datos de prueba
 
 ```bash

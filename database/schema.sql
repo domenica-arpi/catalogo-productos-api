@@ -1,5 +1,6 @@
 -- Esquema relacional del catálogo de productos y favoritos.
 -- Idempotente: se puede ejecutar más de una vez con seguridad.
+-- No modifica automáticamente datos de negocio existentes (precios, stock, etc.).
 
 BEGIN;
 
@@ -21,7 +22,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS products (
   id SERIAL PRIMARY KEY,
   name VARCHAR(150) NOT NULL,
-  description TEXT NOT NULL DEFAULT '',
+  description TEXT,
   category VARCHAR(100) NOT NULL DEFAULT 'General',
   price NUMERIC(10, 2) NOT NULL,
   stock INTEGER NOT NULL DEFAULT 0,
@@ -51,36 +52,53 @@ CREATE TABLE IF NOT EXISTS favorites (
 ALTER TABLE products
   ADD COLUMN IF NOT EXISTS category VARCHAR(100);
 
+-- Solo rellena NULL de la columna nueva; no reescribe categorías ya existentes.
 UPDATE products
 SET category = 'General'
-WHERE category IS NULL OR LENGTH(TRIM(category)) = 0;
+WHERE category IS NULL;
 
 ALTER TABLE products
   ALTER COLUMN category SET DEFAULT 'General';
 
+-- description permanece nullable (como en etapas anteriores).
 ALTER TABLE products
-  ALTER COLUMN category SET NOT NULL;
-
-UPDATE products
-SET description = ''
-WHERE description IS NULL;
-
-ALTER TABLE products
-  ALTER COLUMN description SET DEFAULT '';
-
-ALTER TABLE products
-  ALTER COLUMN description SET NOT NULL;
-
--- Reemplaza la restricción antigua price >= 0 por price > 0.
-UPDATE products
-SET price = 0.01
-WHERE price <= 0;
-
-ALTER TABLE products
-  DROP CONSTRAINT IF EXISTS products_price_non_negative;
+  ALTER COLUMN description DROP NOT NULL;
 
 DO $$
+DECLARE
+  invalid_price_count INTEGER;
+  blank_category_count INTEGER;
 BEGIN
+  SELECT COUNT(*)
+  INTO invalid_price_count
+  FROM products
+  WHERE price <= 0;
+
+  IF invalid_price_count > 0 THEN
+    RAISE EXCEPTION
+      'Migración abortada: hay % producto(s) con price <= 0. Corrige manualmente esos registros antes de aplicar la restricción price > 0. La migración no modifica precios automáticamente.',
+      invalid_price_count;
+  END IF;
+
+  SELECT COUNT(*)
+  INTO blank_category_count
+  FROM products
+  WHERE category IS NOT NULL
+    AND LENGTH(TRIM(category)) = 0;
+
+  IF blank_category_count > 0 THEN
+    RAISE EXCEPTION
+      'Migración abortada: hay % producto(s) con category vacía. Corrige manualmente esos registros antes de continuar.',
+      blank_category_count;
+  END IF;
+
+  -- Tras validar, se puede exigir NOT NULL en category.
+  ALTER TABLE products
+    ALTER COLUMN category SET NOT NULL;
+
+  ALTER TABLE products
+    DROP CONSTRAINT IF EXISTS products_price_non_negative;
+
   IF NOT EXISTS (
     SELECT 1
     FROM pg_constraint
