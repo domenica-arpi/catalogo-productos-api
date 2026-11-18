@@ -21,7 +21,8 @@ catalogo-productos-api/
 │   ├── seed.js
 │   ├── test-db.js
 │   ├── test-auth.js
-│   └── test-products.js
+│   ├── test-products.js
+│   └── test-favorites.js
 ├── src/
 │   ├── config/
 │   │   ├── index.js
@@ -30,6 +31,7 @@ catalogo-productos-api/
 │   │   ├── auth.controller.js
 │   │   ├── admin.controller.js
 │   │   ├── product.controller.js
+│   │   ├── favorite.controller.js
 │   │   └── health.controller.js
 │   ├── middlewares/
 │   │   ├── auth.middleware.js
@@ -39,12 +41,14 @@ catalogo-productos-api/
 │   │   ├── auth.routes.js
 │   │   ├── admin.routes.js
 │   │   ├── product.routes.js
+│   │   ├── favorite.routes.js
 │   │   ├── health.routes.js
 │   │   └── index.js
 │   ├── services/
 │   │   ├── auth.service.js
 │   │   ├── user.service.js
-│   │   └── product.service.js
+│   │   ├── product.service.js
+│   │   └── favorite.service.js
 │   ├── utils/
 │   │   ├── errors.js
 │   │   └── validators.js
@@ -410,13 +414,97 @@ npm run db:seed
 npm run test:products
 ```
 
-También puedes ejecutar autenticación + productos:
+También puedes ejecutar autenticación + productos + favoritos:
 
 ```bash
 npm test
 ```
 
 El script `scripts/test-products.js` valida listado/detalle públicos, filtro por categoría, CRUD admin, rechazos `401`/`403`, validaciones, duplicados, persistencia tras reinicio e integridad `ON DELETE CASCADE` de favoritos.
+
+## CRUD de favoritos
+
+Todos los endpoints requieren autenticación JWT.  
+El usuario se identifica **solo** desde el token (`req.auth.id`); cualquier `userId` en el cuerpo se ignora.
+
+| Método | Endpoint | Descripción |
+| --- | --- | --- |
+| `POST` | `/api/favorites` | Agregar un producto a favoritos |
+| `GET` | `/api/favorites` | Listar favoritos del usuario autenticado |
+| `DELETE` | `/api/favorites/:productId` | Quitar un producto de favoritos |
+
+### Cuerpo de `POST /api/favorites`
+
+```json
+{
+  "productId": 2
+}
+```
+
+### Ejemplos
+
+```bash
+# Agregar
+curl -X POST http://localhost:3000/api/favorites \
+  -H "Authorization: Bearer TU_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"productId": 2}'
+
+# Listar
+curl http://localhost:3000/api/favorites \
+  -H "Authorization: Bearer TU_TOKEN"
+
+# Eliminar
+curl -X DELETE http://localhost:3000/api/favorites/2 \
+  -H "Authorization: Bearer TU_TOKEN"
+```
+
+Respuesta de listado (ejemplo):
+
+```json
+{
+  "status": "ok",
+  "message": "Favoritos obtenidos correctamente",
+  "data": {
+    "count": 1,
+    "favorites": [
+      {
+        "id": 1,
+        "productId": 2,
+        "createdAt": "2026-11-18T23:50:00.000Z",
+        "product": {
+          "id": 2,
+          "name": "Bolígrafo azul",
+          "description": "Bolígrafo de tinta gel",
+          "category": "Papelería",
+          "price": 1.25,
+          "stock": 120
+        }
+      }
+    ]
+  }
+}
+```
+
+### Códigos HTTP
+
+| Código | Caso |
+| --- | --- |
+| `200` | Listado o eliminación correcta |
+| `201` | Favorito agregado |
+| `400` | `productId` inválido o ausente |
+| `401` | Sin token o token inválido |
+| `404` | Producto inexistente / favorito no encontrado para el usuario |
+| `409` | El producto ya está en favoritos |
+| `500` | Error interno (sin detalles sensibles) |
+
+### Pruebas de favoritos
+
+```bash
+npm run db:migrate
+npm run db:seed
+npm run test:favorites
+```
 
 ## Estado actual
 
@@ -429,7 +517,4 @@ Incluido hasta ahora:
 - Autenticación JWT (`register`, `login`, `me`)
 - Middlewares de autenticación y autorización por roles
 - CRUD de productos con filtro por categoría
-
-Pendiente para siguientes etapas:
-
-- CRUD de favoritos
+- CRUD de favoritos por usuario autenticado

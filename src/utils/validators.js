@@ -192,6 +192,40 @@ function validateProductId(rawId) {
   return { errors: [], id };
 }
 
+/**
+ * Valida el cuerpo para agregar un favorito.
+ * Solo acepta productId; ignora cualquier userId del cliente.
+ * @param {unknown} body
+ */
+function validateFavoriteInput(body) {
+  const shapeErrors = getBodyShapeErrors(body);
+  if (shapeErrors.length > 0) {
+    return {
+      errors: shapeErrors,
+      value: { productId: null },
+    };
+  }
+
+  const rawProductId =
+    body.productId !== undefined ? body.productId : body.product_id;
+  const { errors, id } = validateProductId(rawProductId);
+
+  if (errors.length > 0 || rawProductId === undefined || rawProductId === null) {
+    return {
+      errors:
+        errors.length > 0
+          ? errors
+          : ['El identificador del producto es obligatorio'],
+      value: { productId: null },
+    };
+  }
+
+  return {
+    errors: [],
+    value: { productId: id },
+  };
+}
+
 module.exports = {
   EMAIL_REGEX,
   MIN_PASSWORD_LENGTH,
@@ -200,4 +234,5 @@ module.exports = {
   validateLoginInput,
   validateProductInput,
   validateProductId,
+  validateFavoriteInput,
 };
