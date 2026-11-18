@@ -41,7 +41,7 @@ catalogo-productos-api/
 ## Modelo relacional
 
 - **users**: usuarios del sistema (`id`, `name`, `email`, `password` cifrada, `role`, fechas).
-- **products**: catálogo (`id`, `name`, `description`, `price`, `stock`, fechas).
+- **products**: catálogo (`id`, `name` único, `description`, `price`, `stock`, fechas).
 - **favorites**: relación N:M entre usuarios y productos.
   - Claves foráneas a `users` y `products` con `ON DELETE CASCADE`.
   - Restricción `UNIQUE (user_id, product_id)` para evitar duplicados.

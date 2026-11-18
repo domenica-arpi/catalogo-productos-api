@@ -80,38 +80,21 @@ async function seed() {
   const productIds = [];
 
   for (const product of DEMO_PRODUCTS) {
-    const existing = await query(
-      'SELECT id FROM products WHERE name = $1 LIMIT 1;',
-      [product.name]
+    const result = await query(
+      `
+        INSERT INTO products (name, description, price, stock)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (name) DO UPDATE
+          SET description = EXCLUDED.description,
+              price = EXCLUDED.price,
+              stock = EXCLUDED.stock,
+              updated_at = NOW()
+        RETURNING id;
+      `,
+      [product.name, product.description, product.price, product.stock]
     );
 
-    let productId;
-
-    if (existing.rows.length > 0) {
-      productId = existing.rows[0].id;
-      await query(
-        `
-          UPDATE products
-          SET description = $1,
-              price = $2,
-              stock = $3,
-              updated_at = NOW()
-          WHERE id = $4;
-        `,
-        [product.description, product.price, product.stock, productId]
-      );
-    } else {
-      const inserted = await query(
-        `
-          INSERT INTO products (name, description, price, stock)
-          VALUES ($1, $2, $3, $4)
-          RETURNING id;
-        `,
-        [product.name, product.description, product.price, product.stock]
-      );
-      productId = inserted.rows[0].id;
-    }
-
+    const productId = result.rows[0].id;
     productIds.push(productId);
     console.log(`Producto listo: ${product.name} (id=${productId})`);
   }
