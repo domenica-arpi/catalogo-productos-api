@@ -1,6 +1,10 @@
 const express = require('express');
 const cors = require('cors');
 const routes = require('./routes');
+const {
+  notFoundHandler,
+  errorHandler,
+} = require('./middlewares/error.middleware');
 
 /**
  * Configura y exporta la aplicación Express.
@@ -14,11 +18,7 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use('/api', routes);
 
-app.use((_req, res) => {
-  res.status(404).json({
-    status: 'error',
-    message: 'Ruta no encontrada',
-  });
-});
+app.use(notFoundHandler);
+app.use(errorHandler);
 
 module.exports = app;
