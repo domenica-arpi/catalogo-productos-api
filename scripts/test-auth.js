@@ -5,10 +5,16 @@
  *   npm run test:auth
  */
 const http = require('http');
+const path = require('path');
+const { spawnSync } = require('child_process');
 const jwt = require('jsonwebtoken');
 const app = require('../src/app');
 const config = require('../src/config');
 const { closePool, testConnection } = require('../src/config/database');
+const {
+  resolveJwtConfig,
+  DEV_ONLY_JWT_SECRET,
+} = require('../src/config');
 
 const suffix = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 const demoUser = {
@@ -30,19 +36,39 @@ function assert(condition, label) {
   }
 }
 
-async function request(baseUrl, method, path, { body, token } = {}) {
-  const headers = {
-    'Content-Type': 'application/json',
-  };
+async function request(baseUrl, method, pathName, options = {}) {
+  const {
+    body,
+    token,
+    rawBody,
+    omitBody = false,
+    contentType = 'application/json',
+  } = options;
+
+  const headers = {};
+
+  if (contentType) {
+    headers['Content-Type'] = contentType;
+  }
 
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${baseUrl}${path}`, {
+  let payload;
+
+  if (!omitBody) {
+    if (rawBody !== undefined) {
+      payload = rawBody;
+    } else if (body !== undefined) {
+      payload = JSON.stringify(body);
+    }
+  }
+
+  const response = await fetch(`${baseUrl}${pathName}`, {
     method,
     headers,
-    body: body ? JSON.stringify(body) : undefined,
+    body: payload,
   });
 
   const text = await response.text();
@@ -55,6 +81,21 @@ async function request(baseUrl, method, path, { body, token } = {}) {
   }
 
   return { status: response.status, body: json };
+}
+
+function loadConfigInChild(envOverrides) {
+  return spawnSync(
+    process.execPath,
+    ['-e', "require('./src/config'); console.log('CONFIG_OK');"],
+    {
+      cwd: path.join(__dirname, '..'),
+      env: {
+        ...process.env,
+        ...envOverrides,
+      },
+      encoding: 'utf8',
+    }
+  );
 }
 
 async function run() {
@@ -189,6 +230,113 @@ async function run() {
     console.log('\nExtra) Health sigue disponible');
     const health = await request(baseUrl, 'GET', '/api/health');
     assert(health.status === 200, 'GET /api/health → 200');
+
+    console.log('\n11) Registro sin cuerpo');
+    const registerNoBody = await request(baseUrl, 'POST', '/api/auth/register', {
+      omitBody: true,
+      contentType: null,
+    });
+    assert(registerNoBody.status === 400, 'HTTP 400');
+    assert(
+      typeof registerNoBody.body?.message === 'string' &&
+        registerNoBody.body.message.length > 0,
+      'mensaje controlado'
+    );
+    assert(registerNoBody.status !== 500, 'no responde 500');
+
+    console.log('\n12) Login sin cuerpo');
+    const loginNoBody = await request(baseUrl, 'POST', '/api/auth/login', {
+      omitBody: true,
+      contentType: null,
+    });
+    assert(loginNoBody.status === 400, 'HTTP 400');
+    assert(
+      typeof loginNoBody.body?.message === 'string' &&
+        loginNoBody.body.message.length > 0,
+      'mensaje controlado'
+    );
+    assert(loginNoBody.status !== 500, 'no responde 500');
+
+    console.log('\n13) Registro con cuerpo que no es objeto');
+    const registerArrayBody = await request(baseUrl, 'POST', '/api/auth/register', {
+      body: ['no', 'es', 'objeto'],
+    });
+    assert(registerArrayBody.status === 400, 'HTTP 400 (array)');
+    assert(registerArrayBody.status !== 500, 'array no provoca 500');
+
+    const registerStringBody = await request(baseUrl, 'POST', '/api/auth/register', {
+      rawBody: '"texto-plano"',
+    });
+    assert(registerStringBody.status === 400, 'HTTP 400 (string JSON)');
+    assert(registerStringBody.status !== 500, 'string no provoca 500');
+
+    console.log('\n14) Producción sin JWT_SECRET');
+    let missingThrew = false;
+    try {
+      resolveJwtConfig({
+        nodeEnv: 'production',
+        secretFromEnv: '',
+        expiresInFromEnv: '1d',
+      });
+    } catch (error) {
+      missingThrew = /JWT_SECRET/i.test(error.message);
+    }
+    assert(missingThrew, 'resolveJwtConfig lanza error sin secreto');
+
+    const childMissing = loadConfigInChild({
+      NODE_ENV: 'production',
+      JWT_SECRET: '',
+    });
+    assert(childMissing.status !== 0, 'arranque producción sin JWT_SECRET falla');
+    assert(!childMissing.stdout.includes('CONFIG_OK'), 'no carga config inválida');
+
+    console.log('\n15) Producción con clave de ejemplo insegura');
+    let insecureThrew = false;
+    try {
+      resolveJwtConfig({
+        nodeEnv: 'production',
+        secretFromEnv: 'cambia_este_secreto_por_uno_seguro',
+        expiresInFromEnv: '1d',
+      });
+    } catch (error) {
+      insecureThrew = /inseguro|ejemplo|JWT_SECRET/i.test(error.message);
+    }
+    assert(insecureThrew, 'rechaza secreto de ejemplo');
+
+    const childInsecure = loadConfigInChild({
+      NODE_ENV: 'production',
+      JWT_SECRET: 'dev_secret_change_me',
+    });
+    assert(childInsecure.status !== 0, 'arranque con secreto de ejemplo falla');
+
+    console.log('\n16) Inicio correcto con clave segura');
+    const secureSecret = `secure-prod-secret-${'x'.repeat(40)}`;
+    const secureConfig = resolveJwtConfig({
+      nodeEnv: 'production',
+      secretFromEnv: secureSecret,
+      expiresInFromEnv: '2h',
+    });
+    assert(secureConfig.secret === secureSecret, 'acepta secreto seguro');
+    assert(secureConfig.expiresIn === '2h', 'respeta JWT_EXPIRES_IN');
+
+    const childSecure = loadConfigInChild({
+      NODE_ENV: 'production',
+      JWT_SECRET: secureSecret,
+      JWT_EXPIRES_IN: '2h',
+    });
+    assert(childSecure.status === 0, 'arranque producción con secreto seguro OK');
+    assert(childSecure.stdout.includes('CONFIG_OK'), 'config carga correctamente');
+
+    console.log('\n17) Desarrollo puede usar fallback local identificado');
+    const devFallback = resolveJwtConfig({
+      nodeEnv: 'development',
+      secretFromEnv: '',
+      expiresInFromEnv: '1d',
+    });
+    assert(
+      devFallback.secret === DEV_ONLY_JWT_SECRET,
+      'fallback exclusivo de desarrollo'
+    );
   } finally {
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

@@ -15,6 +15,13 @@ function notFoundHandler(_req, res) {
  * Middleware centralizado de errores.
  */
 function errorHandler(err, _req, res, _next) {
+  if (err instanceof SyntaxError && 'body' in err) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'JSON inválido en el cuerpo de la solicitud',
+    });
+  }
+
   const statusCode = err instanceof AppError ? err.statusCode : 500;
   const message =
     err instanceof AppError

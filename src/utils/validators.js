@@ -4,10 +4,35 @@ const MIN_NAME_LENGTH = 2;
 const MAX_NAME_LENGTH = 100;
 
 /**
+ * Comprueba que el cuerpo sea un objeto plano JSON (no null, array ni primitivo).
+ * @param {unknown} body
+ * @returns {string[]}
+ */
+function getBodyShapeErrors(body) {
+  if (body == null) {
+    return ['El cuerpo de la solicitud es obligatorio'];
+  }
+
+  if (typeof body !== 'object' || Array.isArray(body)) {
+    return ['El cuerpo de la solicitud debe ser un objeto JSON'];
+  }
+
+  return [];
+}
+
+/**
  * Normaliza y valida los datos de registro.
- * @param {Record<string, unknown>} body
+ * @param {unknown} body
  */
 function validateRegisterInput(body) {
+  const shapeErrors = getBodyShapeErrors(body);
+  if (shapeErrors.length > 0) {
+    return {
+      errors: shapeErrors,
+      value: { name: '', email: '', password: '' },
+    };
+  }
+
   const errors = [];
   const name = typeof body.name === 'string' ? body.name.trim() : '';
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
@@ -39,9 +64,17 @@ function validateRegisterInput(body) {
 
 /**
  * Normaliza y valida los datos de inicio de sesión.
- * @param {Record<string, unknown>} body
+ * @param {unknown} body
  */
 function validateLoginInput(body) {
+  const shapeErrors = getBodyShapeErrors(body);
+  if (shapeErrors.length > 0) {
+    return {
+      errors: shapeErrors,
+      value: { email: '', password: '' },
+    };
+  }
+
   const errors = [];
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
   const password = typeof body.password === 'string' ? body.password : '';
@@ -65,6 +98,7 @@ function validateLoginInput(body) {
 module.exports = {
   EMAIL_REGEX,
   MIN_PASSWORD_LENGTH,
+  getBodyShapeErrors,
   validateRegisterInput,
   validateLoginInput,
 };

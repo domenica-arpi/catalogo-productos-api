@@ -97,10 +97,13 @@ cp .env.example .env
 | `DB_NAME` | Nombre de la base | `catalogo_productos` |
 | `DB_USER` | Usuario de la base | `postgres` |
 | `DB_PASSWORD` | Contraseña de la base | *(tu password local)* |
-| `JWT_SECRET` | Clave secreta para firmar tokens | *(cadena larga y aleatoria)* |
+| `JWT_SECRET` | Clave secreta para firmar tokens | *(cadena larga y aleatoria, ≥ 32 caracteres en producción)* |
 | `JWT_EXPIRES_IN` | Expiración del token | `1d` |
 
-No subas el archivo `.env` al repositorio (está en `.gitignore`).
+En **producción** (`NODE_ENV=production`) la API **no arranca** si `JWT_SECRET` falta, es demasiado corta o coincide con un valor de ejemplo/inseguro.  
+En **desarrollo**, si no defines `JWT_SECRET`, se usa un fallback local claramente marcado como exclusivo de desarrollo (con aviso en consola).
+
+No subas el archivo `.env` al repositorio (está en `.gitignore`). No documentes ni registres en logs el valor real del secreto.
 
 ## Base de datos
 
@@ -285,6 +288,12 @@ El script `scripts/test-auth.js` valida:
 8. Token inválido o expirado
 9. Usuario normal bloqueado en ruta admin
 10. Administrador autorizado en ruta admin
+11. Registro sin cuerpo → `400`
+12. Login sin cuerpo → `400`
+13. Registro con cuerpo no objeto → `400`
+14. Producción sin `JWT_SECRET` → fallo de arranque
+15. Producción con secreto de ejemplo → fallo de arranque
+16. Producción con secreto seguro → arranque correcto
 
 ## Estado actual
 
