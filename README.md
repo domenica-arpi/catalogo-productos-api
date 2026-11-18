@@ -20,7 +20,8 @@ catalogo-productos-api/
 │   ├── migrate.js
 │   ├── seed.js
 │   ├── test-db.js
-│   └── test-auth.js
+│   ├── test-auth.js
+│   └── test-products.js
 ├── src/
 │   ├── config/
 │   │   ├── index.js
@@ -28,6 +29,7 @@ catalogo-productos-api/
 │   ├── controllers/
 │   │   ├── auth.controller.js
 │   │   ├── admin.controller.js
+│   │   ├── product.controller.js
 │   │   └── health.controller.js
 │   ├── middlewares/
 │   │   ├── auth.middleware.js
@@ -36,11 +38,13 @@ catalogo-productos-api/
 │   ├── routes/
 │   │   ├── auth.routes.js
 │   │   ├── admin.routes.js
+│   │   ├── product.routes.js
 │   │   ├── health.routes.js
 │   │   └── index.js
 │   ├── services/
 │   │   ├── auth.service.js
-│   │   └── user.service.js
+│   │   ├── user.service.js
+│   │   └── product.service.js
 │   ├── utils/
 │   │   ├── errors.js
 │   │   └── validators.js
@@ -55,7 +59,7 @@ catalogo-productos-api/
 ## Modelo relacional
 
 - **users**: usuarios del sistema (`id`, `name`, `email`, `password` cifrada, `role`, fechas).
-- **products**: catálogo (`id`, `name` único, `description`, `price`, `stock`, fechas).
+- **products**: catálogo (`id`, `name` único, `description`, `category`, `price` > 0, `stock`, fechas).
 - **favorites**: relación N:M entre usuarios y productos.
   - Claves foráneas a `users` y `products` con `ON DELETE CASCADE`.
   - Restricción `UNIQUE (user_id, product_id)` para evitar duplicados.
@@ -266,6 +270,105 @@ Comprobar salud:
 curl http://localhost:3000/api/health
 ```
 
+## CRUD de productos
+
+| Método | Endpoint | Acceso |
+| --- | --- | --- |
+| `GET` | `/api/products` | Público |
+| `GET` | `/api/products/:id` | Público |
+| `POST` | `/api/products` | Solo `admin` (JWT) |
+| `PUT` | `/api/products/:id` | Solo `admin` (JWT) |
+| `DELETE` | `/api/products/:id` | Solo `admin` (JWT) |
+
+### Query params
+
+- `category` (opcional): filtra por categoría. Ejemplo: `/api/products?category=Electrónica`
+
+### Códigos HTTP usados
+
+| Código | Uso |
+| --- | --- |
+| `200` | Listado, detalle, actualización o eliminación correctos |
+| `201` | Producto creado |
+| `400` | Validación fallida (precio ≤ 0, campos vacíos, body inválido, id inválido) |
+| `401` | Sin token o token inválido en operaciones admin |
+| `403` | Usuario autenticado sin rol `admin` |
+| `404` | Producto no encontrado |
+| `409` | Nombre de producto duplicado |
+
+### Ejemplos
+
+Listar productos:
+
+```bash
+curl http://localhost:3000/api/products
+curl "http://localhost:3000/api/products?category=Electrónica"
+```
+
+Crear producto (admin):
+
+```bash
+curl -X POST http://localhost:3000/api/products \
+  -H "Authorization: Bearer TOKEN_ADMIN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Teclado mecánico",
+    "description": "Teclado con switches rojos",
+    "category": "Electrónica",
+    "price": 59.99,
+    "stock": 10
+  }'
+```
+
+Respuesta `201` (ejemplo):
+
+```json
+{
+  "status": "ok",
+  "message": "Producto creado correctamente",
+  "data": {
+    "product": {
+      "id": 6,
+      "name": "Teclado mecánico",
+      "description": "Teclado con switches rojos",
+      "category": "Electrónica",
+      "price": 59.99,
+      "stock": 10,
+      "createdAt": "2026-11-18T23:40:00.000Z",
+      "updatedAt": "2026-11-18T23:40:00.000Z"
+    }
+  }
+}
+```
+
+Actualizar / eliminar:
+
+```bash
+curl -X PUT http://localhost:3000/api/products/6 \
+  -H "Authorization: Bearer TOKEN_ADMIN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Teclado mecánico RGB",
+    "description": "Con iluminación",
+    "category": "Electrónica",
+    "price": 64.5,
+    "stock": 8
+  }'
+
+curl -X DELETE http://localhost:3000/api/products/6 \
+  -H "Authorization: Bearer TOKEN_ADMIN"
+```
+
+Errores frecuentes:
+
+- Sin token en `POST/PUT/DELETE` → `401`
+- Usuario normal → `403`
+- Precio `0` o negativo → `400`
+- Nombre duplicado → `409`
+- Id inexistente → `404`
+
+Campos requeridos en `POST`/`PUT`: `name`, `description`, `category`, `price` (> 0). `stock` es opcional (por defecto `0`).
+
 ## Pruebas de autenticación
 
 Asegúrate de tener la base migrada y, para la prueba de admin, el seed cargado:
@@ -295,6 +398,22 @@ El script `scripts/test-auth.js` valida:
 15. Producción con secreto de ejemplo → fallo de arranque
 16. Producción con secreto seguro → arranque correcto
 
+## Pruebas de productos
+
+```bash
+npm run db:migrate
+npm run db:seed
+npm run test:products
+```
+
+También puedes ejecutar autenticación + productos:
+
+```bash
+npm test
+```
+
+El script `scripts/test-products.js` valida listado/detalle públicos, filtro por categoría, CRUD admin, rechazos `401`/`403`, validaciones, duplicados, persistencia tras reinicio e integridad `ON DELETE CASCADE` de favoritos.
+
 ## Estado actual
 
 Incluido hasta ahora:
@@ -305,9 +424,8 @@ Incluido hasta ahora:
 - Esquema SQL de `users`, `products` y `favorites`
 - Autenticación JWT (`register`, `login`, `me`)
 - Middlewares de autenticación y autorización por roles
-- Ruta de prueba `GET /api/admin/ping`
+- CRUD de productos con filtro por categoría
 
 Pendiente para siguientes etapas:
 
-- CRUD de productos
 - CRUD de favoritos
