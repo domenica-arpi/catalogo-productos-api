@@ -11,7 +11,8 @@
     "db:test": "node scripts/test-db.js",
     "test:auth": "node scripts/test-auth.js",
     "test:products": "node scripts/test-products.js",
-    "test": "npm run test:auth && npm run test:products"
+    "test:favorites": "node scripts/test-favorites.js",
+    "test": "npm run test:auth && npm run test:products && npm run test:favorites"
   },
   "repository": {
     "type": "git",
