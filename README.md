@@ -22,7 +22,11 @@ catalogo-productos-api/
 │   ├── test-db.js
 │   ├── test-auth.js
 │   ├── test-products.js
-│   └── test-favorites.js
+│   ├── test-favorites.js
+│   └── run-test-server.js
+├── postman/
+│   ├── Catalogo-Productos-API.postman_collection.json
+│   └── Catalogo-Productos-API.postman_environment.json
 ├── src/
 │   ├── config/
 │   │   ├── index.js
@@ -506,6 +510,63 @@ npm run db:seed
 npm run test:favorites
 ```
 
+## Colección de Postman
+
+Archivos listos para importar:
+
+- `postman/Catalogo-Productos-API.postman_collection.json`
+- `postman/Catalogo-Productos-API.postman_environment.json`
+
+### Cómo importar
+
+1. Abre Postman.
+2. **Import** → selecciona ambos archivos JSON de la carpeta `postman/`.
+3. En la esquina superior derecha, elige el entorno **Catalogo Productos API - Local**.
+
+### Variables del entorno
+
+| Variable | Uso | Valor inicial |
+| --- | --- | --- |
+| `baseUrl` | URL base de la API | `http://localhost:3000` |
+| `token` | JWT activo (se llena tras el login) | *(vacío)* |
+| `productId` | ID de producto para detalle/update/delete | `1` |
+| `favoriteProductId` | ID de producto para favoritos | `2` |
+
+No se incluyen JWT reales ni secretos en el entorno.
+
+### Cómo configurar y ejecutar
+
+1. Arranca la API localmente (`npm run db:migrate`, `npm run db:seed`, `npm start`).
+2. Ajusta `baseUrl` si tu servidor no está en el puerto 3000.
+3. En la carpeta **Autenticación**:
+   - `Iniciar sesión (usuario)` → guarda `token` automáticamente (para favoritos y `/me`).
+   - `Iniciar sesión (administrador)` → guarda `token` de admin (para Create/Update/Delete de productos).
+4. En **Productos**:
+   - Listar / consultar / filtrar son públicos (sin JWT).
+   - Crear / actualizar / eliminar requieren token de **administrador**.
+5. En **Favoritos**:
+   - Todas las solicitudes requieren JWT de usuario autenticado.
+   - Usa `Iniciar sesión (usuario)` antes de probar esta carpeta.
+
+### Qué endpoints requieren JWT / admin
+
+| Endpoint | JWT | Rol |
+| --- | --- | --- |
+| `POST /api/auth/register` | No | — |
+| `POST /api/auth/login` | No | — |
+| `GET /api/auth/me` | Sí | cualquier autenticado |
+| `GET /api/products` | No | público |
+| `GET /api/products/:id` | No | público |
+| `GET /api/products?category=` | No | público |
+| `POST /api/products` | Sí | `admin` |
+| `PUT /api/products/:id` | Sí | `admin` |
+| `DELETE /api/products/:id` | Sí | `admin` |
+| `GET /api/favorites` | Sí | cualquier autenticado |
+| `POST /api/favorites` | Sí | cualquier autenticado |
+| `DELETE /api/favorites/:productId` | Sí | cualquier autenticado |
+
+La colección incluye scripts de prueba (Tests) para códigos HTTP, estructura de respuesta, restricción admin (`403`) y errores `401`.
+
 ## Estado actual
 
 Incluido hasta ahora:
@@ -518,3 +579,4 @@ Incluido hasta ahora:
 - Middlewares de autenticación y autorización por roles
 - CRUD de productos con filtro por categoría
 - CRUD de favoritos por usuario autenticado
+- Colección y entorno de Postman documentados
