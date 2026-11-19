@@ -528,25 +528,98 @@ Archivos listos para importar:
 | Variable | Uso | Valor inicial |
 | --- | --- | --- |
 | `baseUrl` | URL base de la API | `http://localhost:3000` |
-| `token` | JWT activo (se llena tras el login) | *(vacío)* |
+| `token` | JWT activo (el que usan las solicitudes autenticadas) | *(vacío)* |
+| `userToken` | Copia del JWT del usuario demo (`user`) | *(vacío)* |
+| `adminToken` | Copia del JWT del administrador demo | *(vacío)* |
+| `secondUserToken` | JWT del segundo usuario de prueba | *(vacío)* |
+| `registerEmail` | Correo único generado al registrar | *(vacío)* |
+| `secondUserEmail` | Correo único del segundo usuario | *(vacío)* |
 | `productId` | ID de producto para detalle/update/delete | `1` |
 | `favoriteProductId` | ID de producto para favoritos | `2` |
+| `missingProductId` | ID inexistente para pruebas 404 | `999999` |
 
-No se incluyen JWT reales ni secretos en el entorno.
+No se incluyen JWT reales ni secretos en el entorno. Las contraseñas de las solicitudes de ejemplo son las del seed/demo local documentadas aquí; no van como variables de entorno.
 
 ### Cómo configurar y ejecutar
 
 1. Arranca la API localmente (`npm run db:migrate`, `npm run db:seed`, `npm start`).
 2. Ajusta `baseUrl` si tu servidor no está en el puerto 3000.
 3. En la carpeta **Autenticación**:
-   - `Iniciar sesión (usuario)` → guarda `token` automáticamente (para favoritos y `/me`).
-   - `Iniciar sesión (administrador)` → guarda `token` de admin (para Create/Update/Delete de productos).
+   - `Registrar usuario` genera un correo único en `registerEmail` (prerequest) y espera `201` con rol `user`.
+   - `Iniciar sesión (usuario)` → guarda `token` y `userToken` (favoritos y `/me`).
+   - `Iniciar sesión (administrador)` → guarda `token` y `adminToken` (Create/Update/Delete de productos).
+   - `Registrar segundo usuario` + `Iniciar sesión (segundo usuario)` → para el escenario de favorito ajeno.
 4. En **Productos**:
    - Listar / consultar / filtrar son públicos (sin JWT).
    - Crear / actualizar / eliminar requieren token de **administrador**.
+   - Las pruebas negativas (precio inválido, campos vacíos, ID inexistente) también requieren admin salvo el GET 404.
 5. En **Favoritos**:
    - Todas las solicitudes requieren JWT de usuario autenticado.
    - Usa `Iniciar sesión (usuario)` antes de probar esta carpeta.
+
+### Alternar token de administrador y usuario
+
+Las solicitudes autenticadas leen solo `{{token}}`.
+
+1. Ejecuta `Iniciar sesión (administrador)` → `token` y `adminToken` quedan con el JWT admin.
+2. Ejecuta las operaciones administrativas de productos.
+3. Para volver al usuario normal:
+   - vuelve a ejecutar `Iniciar sesión (usuario)`, **o**
+   - en el entorno, copia el valor de `userToken` a `token`.
+4. Del mismo modo, `secondUserToken` guarda el JWT del segundo usuario tras su login.
+
+### Orden recomendado de ejecución
+
+**Flujo feliz**
+
+1. `Registrar usuario` (correo único; repetible).
+2. `Iniciar sesión (usuario)` → token de usuario.
+3. `Consultar usuario autenticado`.
+4. `Listar productos` / `Consultar producto por ID` / `Filtrar por categoría`.
+5. `Iniciar sesión (administrador)` → token admin.
+6. `Crear producto` (guarda `productId`) → `Actualizar producto` → (opcional) `Eliminar producto`.
+7. `Iniciar sesión (usuario)` de nuevo.
+8. `Agregar favorito` → `Listar favoritos` → `Eliminar favorito`.
+
+**Pruebas negativas de autenticación / autorización (conservadas)**
+
+1. `Consultar usuario sin token` → `401`.
+2. Con token de **usuario**: `Crear producto sin rol admin` → `403`.
+3. `Crear producto sin token` → `401`.
+4. `Listar favoritos sin token` → `401`.
+
+**Pruebas negativas de productos** (después de `Iniciar sesión (administrador)`)
+
+1. `Crear producto con precio cero` → `400`.
+2. `Crear producto con precio negativo` → `400`.
+3. `Crear producto con campos obligatorios vacíos` → `400`.
+4. `Consultar producto inexistente` (`missingProductId`) → `404`.
+5. `Actualizar producto inexistente` → `404`.
+6. `Eliminar producto inexistente` → `404`.
+
+**Pruebas negativas de favoritos** (después de `Iniciar sesión (usuario)`)
+
+1. `Agregar favorito` (debe responder `201`; si ya existía, elimínalo antes o cambia `favoriteProductId`).
+2. `Agregar favorito duplicado` → `409`.
+3. `Agregar favorito de producto inexistente` → `404`.
+4. Escenario de favorito ajeno (una sola corrida, sin datos previos):
+   1. `Iniciar sesión (usuario)` → `userToken`.
+   2. `Registrar segundo usuario`.
+   3. `Iniciar sesión (segundo usuario)`.
+   4. `Agregar favorito` (como segundo usuario, mismo `favoriteProductId`).
+   5. `Iniciar sesión (usuario)` otra vez (token del seed).
+   6. `Eliminar favorito de otro usuario` → `404`.
+
+### Limpieza de datos de prueba
+
+- Los registros con correos `postman.user.*@example.com` / `postman.second.*@example.com` son descartables; puedes dejarlos o borrar esas filas en `users` si quieres una BD limpia.
+- Productos creados desde Postman (p. ej. categoría `Pruebas` o el creado en el flujo feliz) se pueden eliminar con `Eliminar producto` usando el `productId` guardado, o con el usuario admin vía SQL/seed.
+- Favoritos de prueba: `Eliminar favorito` con el usuario dueño, o cambia `favoriteProductId` a un producto que aún no esté marcado.
+- Tras una corrida, deja `token` / `userToken` / `adminToken` / `secondUserToken` vacíos si compartes el entorno exportado (no subas JWT).
+
+### Limitación: JWT vencido
+
+No hay una solicitud Postman de “token expirado” reproducible sin incrustar o generar un JWT firmado con `JWT_SECRET`. Eso expondría el secreto o no sería portable entre entornos. El caso sí está cubierto en `npm run test:auth` (firma un token con `expiresIn: '1ms'` en el servidor de pruebas).
 
 ### Qué endpoints requieren JWT / admin
 
@@ -565,7 +638,7 @@ No se incluyen JWT reales ni secretos en el entorno.
 | `POST /api/favorites` | Sí | cualquier autenticado |
 | `DELETE /api/favorites/:productId` | Sí | cualquier autenticado |
 
-La colección incluye scripts de prueba (Tests) para códigos HTTP, estructura de respuesta, restricción admin (`403`) y errores `401`.
+La colección incluye scripts de prueba (Tests) para códigos HTTP, estructura de respuesta, restricción admin (`403`), errores `401`/`400`/`404`/`409` y registro repetible con correo único.
 
 ## Estado actual
 

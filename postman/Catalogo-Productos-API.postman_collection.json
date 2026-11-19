@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "d51ba298-a0d8-46ff-9135-8efe990504a9",
     "name": "Catalogo Productos API",
-    "description": "Colección académica para la API REST de catálogo de productos y favoritos.\n\nFlujo sugerido:\n1. Autenticación → Iniciar sesión (usuario) o Iniciar sesión (administrador).\n2. El script de login guarda automáticamente `token`.\n3. Productos públicos no requieren JWT.\n4. Crear/Actualizar/Eliminar productos requieren token de administrador.\n5. Favoritos requieren token de usuario normal.\n\nVariables de entorno: `baseUrl`, `token`, `productId`, `favoriteProductId`.",
+    "description": "Colección de la API Catálogo de Productos.\n\nIncluye autenticación, productos, favoritos y pruebas negativas alineadas a los códigos HTTP reales.\n\nOrden sugerido: ver README (sección Colección de Postman).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -19,6 +19,17 @@
           "name": "Registrar usuario",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const stamp = Date.now();",
+                  "const email = `postman.user.${stamp}@example.com`;",
+                  "pm.environment.set('registerEmail', email);"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -27,13 +38,13 @@
                   "  pm.response.to.have.status(201);",
                   "});",
                   "",
-                  "pm.test('Respuesta de registro tiene estructura esperada', function () {",
+                  "pm.test('Respuesta de registro tiene estructura esperada y rol user', function () {",
                   "  const body = pm.response.json();",
                   "  pm.expect(body).to.have.property('status', 'ok');",
                   "  pm.expect(body).to.have.property('data');",
                   "  pm.expect(body.data).to.have.property('user');",
                   "  pm.expect(body.data.user).to.have.property('id');",
-                  "  pm.expect(body.data.user).to.have.property('email');",
+                  "  pm.expect(body.data.user).to.have.property('email', pm.environment.get('registerEmail'));",
                   "  pm.expect(body.data.user).to.have.property('role', 'user');",
                   "  pm.expect(body.data.user).to.not.have.property('password');",
                   "});"
@@ -51,10 +62,10 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Usuario Postman\",\n  \"email\": \"postman.user@example.com\",\n  \"password\": \"Postman123!\"\n}"
+              "raw": "{\n  \"name\": \"Usuario Postman\",\n  \"email\": \"{{registerEmail}}\",\n  \"password\": \"Postman123!\"\n}"
             },
             "url": "{{baseUrl}}/api/auth/register",
-            "description": "Registra un usuario nuevo. El rol siempre será `user` (no se puede autoasignar `admin`)."
+            "description": "Registra un usuario nuevo con correo único generado en el script prerequest (`registerEmail`). El rol siempre será `user` (no se puede autoasignar `admin`). Puede ejecutarse varias veces sin conflicto de unicidad."
           },
           "response": [
             {
@@ -68,7 +79,7 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"status\": \"ok\",\n  \"message\": \"Usuario registrado correctamente\",\n  \"data\": {\n    \"user\": {\n      \"id\": 10,\n      \"name\": \"Usuario Postman\",\n      \"email\": \"postman.user@example.com\",\n      \"role\": \"user\",\n      \"createdAt\": \"2026-11-19T00:00:00.000Z\",\n      \"updatedAt\": \"2026-11-19T00:00:00.000Z\"\n    }\n  }\n}"
+              "body": "{\n  \"status\": \"ok\",\n  \"message\": \"Usuario registrado correctamente\",\n  \"data\": {\n    \"user\": {\n      \"id\": 10,\n      \"name\": \"Usuario Postman\",\n      \"email\": \"postman.user.1730000000000@example.com\",\n      \"role\": \"user\",\n      \"createdAt\": \"2026-11-19T00:00:00.000Z\",\n      \"updatedAt\": \"2026-11-19T00:00:00.000Z\"\n    }\n  }\n}"
             }
           ]
         },
@@ -97,6 +108,7 @@
                   "",
                   "if (body && body.data && body.data.token) {",
                   "  pm.environment.set('token', body.data.token);",
+                  "  pm.environment.set('userToken', body.data.token);",
                   "}"
                 ]
               }
@@ -115,7 +127,7 @@
               "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"User123!\"\n}"
             },
             "url": "{{baseUrl}}/api/auth/login",
-            "description": "Inicia sesión con el usuario demo del seed (`user`). Guarda automáticamente `token` en el entorno para solicitudes de favoritos y `/api/auth/me`.\n\nCredenciales demo locales (solo desarrollo, documentadas en el README)."
+            "description": "Inicia sesión con el usuario demo del seed (`user`). Guarda `token` (activo) y `userToken` para alternar roles.\n\nCredenciales demo locales (solo desarrollo, documentadas en el README).\n\nPara volver a usar este token tras un login de admin: copia `userToken` en `token`, o vuelve a ejecutar esta solicitud."
           },
           "response": [
             {
@@ -150,12 +162,14 @@
                   "pm.test('Login admin devuelve token y rol admin', function () {",
                   "  pm.expect(body).to.have.property('status', 'ok');",
                   "  pm.expect(body.data).to.have.property('token');",
+                  "  pm.expect(body.data.token).to.be.a('string').and.to.have.lengthOf.at.least(20);",
                   "  pm.expect(body.data.user).to.have.property('role', 'admin');",
                   "  pm.expect(body.data.user).to.not.have.property('password');",
                   "});",
                   "",
                   "if (body && body.data && body.data.token) {",
                   "  pm.environment.set('token', body.data.token);",
+                  "  pm.environment.set('adminToken', body.data.token);",
                   "}"
                 ]
               }
@@ -174,9 +188,130 @@
               "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"Admin123!\"\n}"
             },
             "url": "{{baseUrl}}/api/auth/login",
-            "description": "Inicia sesión con el administrador demo del seed. Guarda `token` para Create/Update/Delete de productos.\n\nEjecuta esta solicitud antes de las operaciones administrativas del catálogo."
+            "description": "Inicia sesión con el administrador demo del seed. Guarda `token` (activo) y `adminToken`.\n\nUsa este token para Create/Update/Delete de productos. Para favoritos, vuelve a `Iniciar sesión (usuario)` o restaura `userToken` en `token`."
           },
           "response": []
+        },
+        {
+          "name": "Registrar segundo usuario",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const stamp = Date.now();",
+                  "const email = `postman.second.${stamp}@example.com`;",
+                  "pm.environment.set('secondUserEmail', email);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Registro del segundo usuario responde 201', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Segundo usuario tiene rol user', function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.data.user).to.have.property('role', 'user');",
+                  "  pm.expect(body.data.user).to.have.property('email', pm.environment.get('secondUserEmail'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Segundo Usuario Postman\",\n  \"email\": \"{{secondUserEmail}}\",\n  \"password\": \"Postman123!\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/register",
+            "description": "Crea un segundo usuario de prueba con correo único (`secondUserEmail`) para escenarios de aislamiento de favoritos. Ejecutar antes de `Iniciar sesión (segundo usuario)`."
+          },
+          "response": [
+            {
+              "name": "Registro segundo usuario (ejemplo)",
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"ok\",\n  \"message\": \"Usuario registrado correctamente\",\n  \"data\": {\n    \"user\": {\n      \"id\": 11,\n      \"name\": \"Segundo Usuario Postman\",\n      \"email\": \"postman.second.1730000000000@example.com\",\n      \"role\": \"user\",\n      \"createdAt\": \"2026-11-19T00:00:00.000Z\",\n      \"updatedAt\": \"2026-11-19T00:00:00.000Z\"\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Iniciar sesión (segundo usuario)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login del segundo usuario responde 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('Login segundo usuario guarda token', function () {",
+                  "  pm.expect(body.data).to.have.property('token');",
+                  "  pm.expect(body.data.user).to.have.property('role', 'user');",
+                  "});",
+                  "",
+                  "if (body && body.data && body.data.token) {",
+                  "  pm.environment.set('token', body.data.token);",
+                  "  pm.environment.set('secondUserToken', body.data.token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{secondUserEmail}}\",\n  \"password\": \"Postman123!\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Inicia sesión con el segundo usuario (`secondUserEmail`). Guarda `token` y `secondUserToken`. Requiere haber ejecutado antes `Registrar segundo usuario`."
+          },
+          "response": [
+            {
+              "name": "Login segundo usuario (ejemplo)",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"ok\",\n  \"message\": \"Inicio de sesión correcto\",\n  \"data\": {\n    \"token\": \"<jwt-omitido>\",\n    \"user\": {\n      \"id\": 11,\n      \"name\": \"Segundo Usuario Postman\",\n      \"email\": \"postman.second.1730000000000@example.com\",\n      \"role\": \"user\",\n      \"createdAt\": \"2026-11-19T00:00:00.000Z\",\n      \"updatedAt\": \"2026-11-19T00:00:00.000Z\"\n    }\n  }\n}"
+            }
+          ]
         },
         {
           "name": "Consultar usuario autenticado",
@@ -375,8 +510,13 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/products?category=Electrónica",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "products"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products"
+              ],
               "query": [
                 {
                   "key": "category",
@@ -545,6 +685,396 @@
           "response": []
         },
         {
+          "name": "Crear producto con precio cero (error 400)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Requiere token de administrador en {{token}}.",
+                  "// Ejecuta antes: Iniciar sesión (administrador)."
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Precio cero responde 400', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('Mensaje indica precio inválido', function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property('status', 'error');",
+                  "  pm.expect(String(body.message || '')).to.match(/precio/i);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Producto precio cero\",\n  \"description\": \"No debe crearse\",\n  \"category\": \"Pruebas\",\n  \"price\": 0,\n  \"stock\": 1\n}"
+            },
+            "url": "{{baseUrl}}/api/products",
+            "description": "Validación real de la API: el precio debe ser estrictamente mayor que cero → HTTP 400. Requiere JWT admin."
+          },
+          "response": [
+            {
+              "name": "Precio cero (ejemplo)",
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"message\": \"El precio debe ser estrictamente mayor que cero\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Crear producto con precio negativo (error 400)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Requiere token de administrador en {{token}}."
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Precio negativo responde 400', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('Mensaje indica precio inválido', function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property('status', 'error');",
+                  "  pm.expect(String(body.message || '')).to.match(/precio/i);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Producto precio negativo\",\n  \"description\": \"No debe crearse\",\n  \"category\": \"Pruebas\",\n  \"price\": -5,\n  \"stock\": 1\n}"
+            },
+            "url": "{{baseUrl}}/api/products",
+            "description": "Precio negativo → HTTP 400. Requiere JWT admin."
+          },
+          "response": [
+            {
+              "name": "Precio negativo (ejemplo)",
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"message\": \"El precio debe ser estrictamente mayor que cero\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Crear producto con campos obligatorios vacíos (error 400)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Requiere token de administrador en {{token}}."
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Campos vacíos responden 400', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('Respuesta de validación con status error', function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property('status', 'error');",
+                  "  pm.expect(body).to.have.property('message');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\",\n  \"category\": \"\",\n  \"price\": \"\"\n}"
+            },
+            "url": "{{baseUrl}}/api/products",
+            "description": "Campos obligatorios vacíos o ausentes (nombre, categoría, precio; descripción omitida) → HTTP 400. Requiere JWT admin. Alineado a `validateProductInput`."
+          },
+          "response": [
+            {
+              "name": "Validación fallida (ejemplo)",
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"message\": \"El nombre es obligatorio. La descripción es obligatoria y debe ser texto. La categoría es obligatoria. El precio es obligatorio\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Consultar producto inexistente (error 404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Producto inexistente responde 404', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('Mensaje de no encontrado', function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property('status', 'error');",
+                  "  pm.expect(String(body.message || '')).to.match(/no encontrado/i);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/products/{{missingProductId}}",
+            "description": "Consulta un ID que no existe (`missingProductId`, por defecto 999999) → HTTP 404. Público, sin JWT."
+          },
+          "response": [
+            {
+              "name": "No encontrado (ejemplo)",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"message\": \"Producto no encontrado\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Actualizar producto inexistente (error 404)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Requiere token de administrador en {{token}}."
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Actualizar inexistente responde 404', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('Mensaje de no encontrado', function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property('status', 'error');",
+                  "  pm.expect(String(body.message || '')).to.match(/no encontrado/i);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"No existe\",\n  \"description\": \"Actualización sobre ID inexistente\",\n  \"category\": \"Pruebas\",\n  \"price\": 10,\n  \"stock\": 0\n}"
+            },
+            "url": "{{baseUrl}}/api/products/{{missingProductId}}",
+            "description": "PUT sobre producto inexistente → HTTP 404. Requiere JWT admin."
+          },
+          "response": [
+            {
+              "name": "No encontrado (ejemplo)",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"message\": \"Producto no encontrado\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Eliminar producto inexistente (error 404)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Requiere token de administrador en {{token}}."
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Eliminar inexistente responde 404', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('Mensaje de no encontrado', function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property('status', 'error');",
+                  "  pm.expect(String(body.message || '')).to.match(/no encontrado/i);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/products/{{missingProductId}}",
+            "description": "DELETE sobre producto inexistente → HTTP 404. Requiere JWT admin."
+          },
+          "response": [
+            {
+              "name": "No encontrado (ejemplo)",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"message\": \"Producto no encontrado\"\n}"
+            }
+          ]
+        },
+        {
           "name": "Crear producto sin rol admin (error 403)",
           "event": [
             {
@@ -694,7 +1224,7 @@
               "raw": "{\n  \"productId\": {{favoriteProductId}}\n}"
             },
             "url": "{{baseUrl}}/api/favorites",
-            "description": "Requiere JWT de usuario autenticado. Ejecuta antes `Iniciar sesión (usuario)`.\n\nEl `userId` se toma solo del token; no envíes `userId` en el cuerpo."
+            "description": "Requiere JWT de usuario autenticado. Ejecuta antes `Iniciar sesión (usuario)`.\n\nEl `userId` se toma solo del token; no envíes `userId` en el cuerpo.\n\nTras un 201, puedes ejecutar `Agregar favorito duplicado (error 409)` con el mismo `favoriteProductId`.\n\nSi el producto ya era favorito de una corrida anterior, primero elimínalo o cambia `favoriteProductId`."
           },
           "response": [
             {
@@ -791,6 +1321,220 @@
             "description": "Requiere JWT. Elimina el favorito del usuario autenticado para `{{favoriteProductId}}`."
           },
           "response": []
+        },
+        {
+          "name": "Agregar favorito duplicado (error 409)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Requiere JWT de usuario en {{token}}.",
+                  "// Orden: Iniciar sesión (usuario) → Agregar favorito → esta solicitud",
+                  "// (mismo favoriteProductId)."
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Favorito duplicado responde 409', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "pm.test('Mensaje indica favorito ya existente', function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property('status', 'error');",
+                  "  pm.expect(String(body.message || '')).to.match(/ya está en tus favoritos|favoritos/i);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": {{favoriteProductId}}\n}"
+            },
+            "url": "{{baseUrl}}/api/favorites",
+            "description": "Segundo intento de agregar el mismo `favoriteProductId` → HTTP 409.\n\nOrden documentado: login usuario → `Agregar favorito` → esta solicitud."
+          },
+          "response": [
+            {
+              "name": "Duplicado (ejemplo)",
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"message\": \"El producto ya está en tus favoritos\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Agregar favorito de producto inexistente (error 404)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Requiere JWT de usuario en {{token}}.",
+                  "// Ejecuta antes: Iniciar sesión (usuario)."
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Favorito de producto inexistente responde 404', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('Mensaje de producto no encontrado', function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property('status', 'error');",
+                  "  pm.expect(String(body.message || '')).to.match(/no encontrado/i);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": {{missingProductId}}\n}"
+            },
+            "url": "{{baseUrl}}/api/favorites",
+            "description": "Intenta marcar como favorito un producto que no existe (`missingProductId`) → HTTP 404."
+          },
+          "response": [
+            {
+              "name": "Producto no encontrado (ejemplo)",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"message\": \"Producto no encontrado\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Eliminar favorito de otro usuario (error 404)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Orden documentado (reproducible en una sola corrida):",
+                  "// 1) Iniciar sesión (usuario)            → guarda userToken",
+                  "// 2) Registrar segundo usuario",
+                  "// 3) Iniciar sesión (segundo usuario)    → token = secondUserToken",
+                  "// 4) Agregar favorito (como segundo)     → usa favoriteProductId",
+                  "// 5) Iniciar sesión (usuario)            → token = userToken (seed)",
+                  "// 6) Esta solicitud: DELETE del mismo favoriteProductId",
+                  "// Esperado: 404 (el favorito no pertenece al usuario autenticado)."
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Eliminar favorito ajeno responde 404', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('Mensaje de favorito no encontrado', function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property('status', 'error');",
+                  "  pm.expect(String(body.message || '')).to.match(/no encontrado/i);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/favorites/{{favoriteProductId}}",
+            "description": "Intenta eliminar un favorito que pertenece a otro usuario. La API no filtra por dueño ajeno: si el producto no está en los favoritos del usuario autenticado responde HTTP 404.\n\nVer prerequest / README para el orden con dos usuarios."
+          },
+          "response": [
+            {
+              "name": "Favorito ajeno (ejemplo)",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"error\",\n  \"message\": \"Favorito no encontrado\"\n}"
+            }
+          ]
         },
         {
           "name": "Listar favoritos sin token (error 401)",
