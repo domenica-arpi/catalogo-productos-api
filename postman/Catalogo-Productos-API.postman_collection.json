@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "d51ba298-a0d8-46ff-9135-8efe990504a9",
     "name": "Catalogo Productos API",
-    "description": "Colección de la API Catálogo de Productos.\n\nIncluye autenticación, productos, favoritos y pruebas negativas alineadas a los códigos HTTP reales.\n\nOrden sugerido: ver README (sección Colección de Postman).",
+    "description": "Colección de la API Catálogo de Productos.\n\nIncluye autenticación, productos, favoritos y pruebas negativas alineadas a los códigos HTTP reales.\n\nFavoritos / aislamiento: login A → agregar → duplicado 409 → eliminar A (200) → login B → agregar → login A → eliminar ajeno 404 → listar B.\n\nOrden detallado: ver README (sección Colección de Postman).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -237,7 +237,7 @@
               "raw": "{\n  \"name\": \"Segundo Usuario Postman\",\n  \"email\": \"{{secondUserEmail}}\",\n  \"password\": \"Postman123!\"\n}"
             },
             "url": "{{baseUrl}}/api/auth/register",
-            "description": "Crea un segundo usuario de prueba con correo único (`secondUserEmail`) para escenarios de aislamiento de favoritos. Ejecutar antes de `Iniciar sesión (segundo usuario)`."
+            "description": "Crea un segundo usuario de prueba con correo único (`secondUserEmail`) para el escenario de aislamiento de favoritos.\n\nEjecutar solo después de que A haya: agregado favorito → duplicado 409 → eliminado su favorito (200). Luego: esta solicitud → `Iniciar sesión (segundo usuario)` → `Agregar favorito` como B."
           },
           "response": [
             {
@@ -295,7 +295,7 @@
               "raw": "{\n  \"email\": \"{{secondUserEmail}}\",\n  \"password\": \"Postman123!\"\n}"
             },
             "url": "{{baseUrl}}/api/auth/login",
-            "description": "Inicia sesión con el segundo usuario (`secondUserEmail`). Guarda `token` y `secondUserToken`. Requiere haber ejecutado antes `Registrar segundo usuario`."
+            "description": "Inicia sesión con el segundo usuario (`secondUserEmail`). Guarda `token` y `secondUserToken`.\n\nParte del escenario de aislamiento: tras el login, ejecuta `Agregar favorito` (como B), vuelve a `Iniciar sesión (usuario)` (A), luego `Eliminar favorito de otro usuario` (404) y `Listar favoritos del segundo usuario (aislamiento)`."
           },
           "response": [
             {
@@ -1224,7 +1224,7 @@
               "raw": "{\n  \"productId\": {{favoriteProductId}}\n}"
             },
             "url": "{{baseUrl}}/api/favorites",
-            "description": "Requiere JWT de usuario autenticado. Ejecuta antes `Iniciar sesión (usuario)`.\n\nEl `userId` se toma solo del token; no envíes `userId` en el cuerpo.\n\nTras un 201, puedes ejecutar `Agregar favorito duplicado (error 409)` con el mismo `favoriteProductId`.\n\nSi el producto ya era favorito de una corrida anterior, primero elimínalo o cambia `favoriteProductId`."
+            "description": "Requiere JWT de usuario autenticado.\n\nOrden del escenario completo de favoritos (misma corrida, mismo `favoriteProductId`):\n1. `Iniciar sesión (usuario)` (A)\n2. Esta solicitud → 201\n3. `Agregar favorito duplicado` → 409\n4. `Eliminar favorito` (A) → 200  ← limpia el favorito de A antes del aislamiento\n5. `Registrar segundo usuario` + `Iniciar sesión (segundo usuario)` (B)\n6. Esta solicitud otra vez (como B) → 201\n7. `Iniciar sesión (usuario)` (vuelve a A)\n8. `Eliminar favorito de otro usuario` → 404\n9. `Listar favoritos del segundo usuario (aislamiento)` → B conserva el favorito\n\nEl `userId` se toma solo del token; no envíes `userId` en el cuerpo.\nSi el producto ya era favorito de A por una corrida anterior, elimínalo primero o cambia `favoriteProductId`."
           },
           "response": [
             {
@@ -1284,45 +1284,6 @@
           "response": []
         },
         {
-          "name": "Eliminar favorito",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('Eliminar favorito responde 200', function () {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test('Confirma eliminación del favorito', function () {",
-                  "  const body = pm.response.json();",
-                  "  pm.expect(body).to.have.property('status', 'ok');",
-                  "  pm.expect(body.data).to.have.property('productId');",
-                  "});"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "DELETE",
-            "header": [],
-            "url": "{{baseUrl}}/api/favorites/{{favoriteProductId}}",
-            "description": "Requiere JWT. Elimina el favorito del usuario autenticado para `{{favoriteProductId}}`."
-          },
-          "response": []
-        },
-        {
           "name": "Agregar favorito duplicado (error 409)",
           "event": [
             {
@@ -1330,9 +1291,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "// Requiere JWT de usuario en {{token}}.",
-                  "// Orden: Iniciar sesión (usuario) → Agregar favorito → esta solicitud",
-                  "// (mismo favoriteProductId)."
+                  "// Requiere JWT de usuario A en {{token}}.",
+                  "// Orden: Iniciar sesión (usuario) → Agregar favorito → esta solicitud → Eliminar favorito (A)."
                 ]
               }
             },
@@ -1377,7 +1337,7 @@
               "raw": "{\n  \"productId\": {{favoriteProductId}}\n}"
             },
             "url": "{{baseUrl}}/api/favorites",
-            "description": "Segundo intento de agregar el mismo `favoriteProductId` → HTTP 409.\n\nOrden documentado: login usuario → `Agregar favorito` → esta solicitud."
+            "description": "Segundo intento de agregar el mismo `favoriteProductId` → HTTP 409.\n\nOrden: login A → `Agregar favorito` → esta solicitud → luego `Eliminar favorito` (A) antes del escenario con B."
           },
           "response": [
             {
@@ -1394,6 +1354,45 @@
               "body": "{\n  \"status\": \"error\",\n  \"message\": \"El producto ya está en tus favoritos\"\n}"
             }
           ]
+        },
+        {
+          "name": "Eliminar favorito",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Eliminar favorito responde 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Confirma eliminación del favorito', function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property('status', 'ok');",
+                  "  pm.expect(body.data).to.have.property('productId');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/favorites/{{favoriteProductId}}",
+            "description": "Requiere JWT. Elimina el favorito del usuario autenticado para `{{favoriteProductId}}` → HTTP 200.\n\nEn el escenario de aislamiento: ejecuta esta solicitud como usuario A **después** del 409 y **antes** de registrar/iniciar sesión como B. Si omites este paso, A conserva el favorito y `Eliminar favorito de otro usuario` puede responder 200 en lugar de 404."
+          },
+          "response": []
         },
         {
           "name": "Agregar favorito de producto inexistente (error 404)",
@@ -1475,14 +1474,17 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "// Orden documentado (reproducible en una sola corrida):",
-                  "// 1) Iniciar sesión (usuario)            → guarda userToken",
-                  "// 2) Registrar segundo usuario",
-                  "// 3) Iniciar sesión (segundo usuario)    → token = secondUserToken",
-                  "// 4) Agregar favorito (como segundo)     → usa favoriteProductId",
-                  "// 5) Iniciar sesión (usuario)            → token = userToken (seed)",
-                  "// 6) Esta solicitud: DELETE del mismo favoriteProductId",
-                  "// Esperado: 404 (el favorito no pertenece al usuario autenticado)."
+                  "// Orden documentado (reproducible en una sola corrida, sin datos previos):",
+                  "// 1) Iniciar sesión (usuario) A            → userToken",
+                  "// 2) Agregar favorito                     → 201",
+                  "// 3) Agregar favorito duplicado           → 409",
+                  "// 4) Eliminar favorito (A)                → 200  (A ya no tiene el favorito)",
+                  "// 5) Registrar segundo usuario",
+                  "// 6) Iniciar sesión (segundo usuario) B   → secondUserToken",
+                  "// 7) Agregar favorito (B, mismo favoriteProductId) → 201",
+                  "// 8) Iniciar sesión (usuario) A otra vez  → token = userToken",
+                  "// 9) Esta solicitud DELETE                → 404",
+                  "// 10) Listar favoritos del segundo usuario (aislamiento) → B conserva el favorito"
                 ]
               }
             },
@@ -1518,7 +1520,7 @@
             "method": "DELETE",
             "header": [],
             "url": "{{baseUrl}}/api/favorites/{{favoriteProductId}}",
-            "description": "Intenta eliminar un favorito que pertenece a otro usuario. La API no filtra por dueño ajeno: si el producto no está en los favoritos del usuario autenticado responde HTTP 404.\n\nVer prerequest / README para el orden con dos usuarios."
+            "description": "Intenta eliminar un favorito que solo pertenece a otro usuario → HTTP 404.\n\nOrden reproducible (misma corrida):\n1. Login A → Agregar favorito → duplicado 409 → **Eliminar favorito (A, 200)**\n2. Registrar + login B → Agregar favorito (B)\n3. Login A otra vez → esta solicitud → 404\n4. `Listar favoritos del segundo usuario (aislamiento)` → B aún lo tiene\n\nSi A no eliminó su favorito en el paso 1, esta solicitud puede devolver 200."
           },
           "response": [
             {
@@ -1533,6 +1535,74 @@
                 }
               ],
               "body": "{\n  \"status\": \"error\",\n  \"message\": \"Favorito no encontrado\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Listar favoritos del segundo usuario (aislamiento)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Usa secondUserToken (no altera {{token}} del usuario A).",
+                  "// Ejecutar al final del escenario de aislamiento, tras el 404 de A."
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Listado del segundo usuario responde 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('B conserva el favoriteProductId tras el intento de A', function () {",
+                  "  const body = pm.response.json();",
+                  "  const expectedId = Number(pm.environment.get('favoriteProductId'));",
+                  "  pm.expect(body).to.have.property('status', 'ok');",
+                  "  pm.expect(body.data).to.have.property('favorites');",
+                  "  const found = (body.data.favorites || []).some(",
+                  "    (item) => Number(item.productId) === expectedId",
+                  "  );",
+                  "  pm.expect(found).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{secondUserToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/favorites",
+            "description": "Verificación final del aislamiento: lista favoritos con `{{secondUserToken}}` y comprueba que B sigue teniendo `favoriteProductId` después de que A intentó eliminarlo (404).\n\nNo usa `{{token}}` para no pisar el JWT de A."
+          },
+          "response": [
+            {
+              "name": "B conserva el favorito (ejemplo)",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"ok\",\n  \"message\": \"Favoritos obtenidos correctamente\",\n  \"data\": {\n    \"count\": 1,\n    \"favorites\": [\n      {\n        \"id\": 5,\n        \"productId\": 2,\n        \"createdAt\": \"2026-11-19T00:00:00.000Z\",\n        \"product\": {\n          \"id\": 2,\n          \"name\": \"Bolígrafo azul\",\n          \"description\": \"Bolígrafo de tinta gel\",\n          \"category\": \"Papelería\",\n          \"price\": 1.25,\n          \"stock\": 120\n        }\n      }\n    ]\n  }\n}"
             }
           ]
         },

@@ -548,14 +548,14 @@ No se incluyen JWT reales ni secretos en el entorno. Las contraseñas de las sol
    - `Registrar usuario` genera un correo único en `registerEmail` (prerequest) y espera `201` con rol `user`.
    - `Iniciar sesión (usuario)` → guarda `token` y `userToken` (favoritos y `/me`).
    - `Iniciar sesión (administrador)` → guarda `token` y `adminToken` (Create/Update/Delete de productos).
-   - `Registrar segundo usuario` + `Iniciar sesión (segundo usuario)` → para el escenario de favorito ajeno.
+   - `Registrar segundo usuario` + `Iniciar sesión (segundo usuario)` → solo después de que A haya eliminado su favorito (paso 4 del escenario de aislamiento).
 4. En **Productos**:
    - Listar / consultar / filtrar son públicos (sin JWT).
    - Crear / actualizar / eliminar requieren token de **administrador**.
    - Las pruebas negativas (precio inválido, campos vacíos, ID inexistente) también requieren admin salvo el GET 404.
 5. En **Favoritos**:
-   - Todas las solicitudes requieren JWT de usuario autenticado.
-   - Usa `Iniciar sesión (usuario)` antes de probar esta carpeta.
+   - Todas las solicitudes requieren JWT de usuario autenticado (salvo el listado sin token).
+   - Sigue el orden documentado más abajo: A agrega → 409 → A elimina → B agrega → A intenta eliminar (404) → B aún lo tiene.
 
 ### Alternar token de administrador y usuario
 
@@ -579,7 +579,7 @@ Las solicitudes autenticadas leen solo `{{token}}`.
 5. `Iniciar sesión (administrador)` → token admin.
 6. `Crear producto` (guarda `productId`) → `Actualizar producto` → (opcional) `Eliminar producto`.
 7. `Iniciar sesión (usuario)` de nuevo.
-8. `Agregar favorito` → `Listar favoritos` → `Eliminar favorito`.
+8. Continúa con las pruebas de favoritos (orden de abajo). No elimines el favorito de A hasta completar el paso 4 del escenario de aislamiento.
 
 **Pruebas negativas de autenticación / autorización (conservadas)**
 
@@ -597,18 +597,21 @@ Las solicitudes autenticadas leen solo `{{token}}`.
 5. `Actualizar producto inexistente` → `404`.
 6. `Eliminar producto inexistente` → `404`.
 
-**Pruebas negativas de favoritos** (después de `Iniciar sesión (usuario)`)
+**Pruebas de favoritos e aislamiento** (orden reproducible, sin depender de datos de una corrida anterior)
 
-1. `Agregar favorito` (debe responder `201`; si ya existía, elimínalo antes o cambia `favoriteProductId`).
-2. `Agregar favorito duplicado` → `409`.
-3. `Agregar favorito de producto inexistente` → `404`.
-4. Escenario de favorito ajeno (una sola corrida, sin datos previos):
-   1. `Iniciar sesión (usuario)` → `userToken`.
-   2. `Registrar segundo usuario`.
-   3. `Iniciar sesión (segundo usuario)`.
-   4. `Agregar favorito` (como segundo usuario, mismo `favoriteProductId`).
-   5. `Iniciar sesión (usuario)` otra vez (token del seed).
-   6. `Eliminar favorito de otro usuario` → `404`.
+Usa siempre el mismo `favoriteProductId`. Si A ya tenía ese favorito de una corrida previa, ejecuta primero `Eliminar favorito` (como A) hasta obtener `200` o `404`, y luego sigue desde el paso 1.
+
+1. `Iniciar sesión (usuario)` → usuario A (`token` / `userToken`).
+2. `Agregar favorito` → `201`.
+3. `Agregar favorito duplicado` → `409`.
+4. `Eliminar favorito` (como A) → `200`. **Obligatorio** antes del aislamiento: si A conserva el favorito, el paso 8 respondería `200` en lugar de `404`.
+5. `Registrar segundo usuario` → `Iniciar sesión (segundo usuario)` → usuario B (`token` / `secondUserToken`).
+6. `Agregar favorito` (como B, mismo `favoriteProductId`) → `201`.
+7. `Iniciar sesión (usuario)` otra vez → vuelve al token de A.
+8. `Eliminar favorito de otro usuario` → `404` (A no tiene ese favorito; solo B lo tiene).
+9. `Listar favoritos del segundo usuario (aislamiento)` → `200` y B sigue teniendo `favoriteProductId`.
+
+Opcional en cualquier momento con token de usuario: `Agregar favorito de producto inexistente` → `404`; `Listar favoritos sin token` → `401`.
 
 ### Limpieza de datos de prueba
 
