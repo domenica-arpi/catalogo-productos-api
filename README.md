@@ -22,7 +22,11 @@ catalogo-productos-api/
 │   ├── test-db.js
 │   ├── test-auth.js
 │   ├── test-products.js
-│   └── test-favorites.js
+│   ├── test-favorites.js
+│   └── run-test-server.js
+├── postman/
+│   ├── Catalogo-Productos-API.postman_collection.json
+│   └── Catalogo-Productos-API.postman_environment.json
 ├── src/
 │   ├── config/
 │   │   ├── index.js
@@ -506,6 +510,139 @@ npm run db:seed
 npm run test:favorites
 ```
 
+## Colección de Postman
+
+Archivos listos para importar:
+
+- `postman/Catalogo-Productos-API.postman_collection.json`
+- `postman/Catalogo-Productos-API.postman_environment.json`
+
+### Cómo importar
+
+1. Abre Postman.
+2. **Import** → selecciona ambos archivos JSON de la carpeta `postman/`.
+3. En la esquina superior derecha, elige el entorno **Catalogo Productos API - Local**.
+
+### Variables del entorno
+
+| Variable | Uso | Valor inicial |
+| --- | --- | --- |
+| `baseUrl` | URL base de la API | `http://localhost:3000` |
+| `token` | JWT activo (el que usan las solicitudes autenticadas) | *(vacío)* |
+| `userToken` | Copia del JWT del usuario demo (`user`) | *(vacío)* |
+| `adminToken` | Copia del JWT del administrador demo | *(vacío)* |
+| `secondUserToken` | JWT del segundo usuario de prueba | *(vacío)* |
+| `registerEmail` | Correo único generado al registrar | *(vacío)* |
+| `secondUserEmail` | Correo único del segundo usuario | *(vacío)* |
+| `productId` | ID de producto para detalle/update/delete | `1` |
+| `favoriteProductId` | ID de producto para favoritos | `2` |
+| `missingProductId` | ID inexistente para pruebas 404 | `999999` |
+
+No se incluyen JWT reales ni secretos en el entorno. Las contraseñas de las solicitudes de ejemplo son las del seed/demo local documentadas aquí; no van como variables de entorno.
+
+### Cómo configurar y ejecutar
+
+1. Arranca la API localmente (`npm run db:migrate`, `npm run db:seed`, `npm start`).
+2. Ajusta `baseUrl` si tu servidor no está en el puerto 3000.
+3. En la carpeta **Autenticación**:
+   - `Registrar usuario` genera un correo único en `registerEmail` (prerequest) y espera `201` con rol `user`.
+   - `Iniciar sesión (usuario)` → guarda `token` y `userToken` (favoritos y `/me`).
+   - `Iniciar sesión (administrador)` → guarda `token` y `adminToken` (Create/Update/Delete de productos).
+   - `Registrar segundo usuario` + `Iniciar sesión (segundo usuario)` → solo después de que A haya eliminado su favorito (paso 4 del escenario de aislamiento).
+4. En **Productos**:
+   - Listar / consultar / filtrar son públicos (sin JWT).
+   - Crear / actualizar / eliminar requieren token de **administrador**.
+   - Las pruebas negativas (precio inválido, campos vacíos, ID inexistente) también requieren admin salvo el GET 404.
+5. En **Favoritos**:
+   - Todas las solicitudes requieren JWT de usuario autenticado (salvo el listado sin token).
+   - Sigue el orden documentado más abajo: A agrega → 409 → A elimina → B agrega → A intenta eliminar (404) → B aún lo tiene.
+
+### Alternar token de administrador y usuario
+
+Las solicitudes autenticadas leen solo `{{token}}`.
+
+1. Ejecuta `Iniciar sesión (administrador)` → `token` y `adminToken` quedan con el JWT admin.
+2. Ejecuta las operaciones administrativas de productos.
+3. Para volver al usuario normal:
+   - vuelve a ejecutar `Iniciar sesión (usuario)`, **o**
+   - en el entorno, copia el valor de `userToken` a `token`.
+4. Del mismo modo, `secondUserToken` guarda el JWT del segundo usuario tras su login.
+
+### Orden recomendado de ejecución
+
+**Flujo feliz**
+
+1. `Registrar usuario` (correo único; repetible).
+2. `Iniciar sesión (usuario)` → token de usuario.
+3. `Consultar usuario autenticado`.
+4. `Listar productos` / `Consultar producto por ID` / `Filtrar por categoría`.
+5. `Iniciar sesión (administrador)` → token admin.
+6. `Crear producto` (guarda `productId`) → `Actualizar producto` → (opcional) `Eliminar producto`.
+7. `Iniciar sesión (usuario)` de nuevo.
+8. Continúa con las pruebas de favoritos (orden de abajo). No elimines el favorito de A hasta completar el paso 4 del escenario de aislamiento.
+
+**Pruebas negativas de autenticación / autorización (conservadas)**
+
+1. `Consultar usuario sin token` → `401`.
+2. Con token de **usuario**: `Crear producto sin rol admin` → `403`.
+3. `Crear producto sin token` → `401`.
+4. `Listar favoritos sin token` → `401`.
+
+**Pruebas negativas de productos** (después de `Iniciar sesión (administrador)`)
+
+1. `Crear producto con precio cero` → `400`.
+2. `Crear producto con precio negativo` → `400`.
+3. `Crear producto con campos obligatorios vacíos` → `400`.
+4. `Consultar producto inexistente` (`missingProductId`) → `404`.
+5. `Actualizar producto inexistente` → `404`.
+6. `Eliminar producto inexistente` → `404`.
+
+**Pruebas de favoritos e aislamiento** (orden reproducible, sin depender de datos de una corrida anterior)
+
+Usa siempre el mismo `favoriteProductId`. Si A ya tenía ese favorito de una corrida previa, ejecuta primero `Eliminar favorito` (como A) hasta obtener `200` o `404`, y luego sigue desde el paso 1.
+
+1. `Iniciar sesión (usuario)` → usuario A (`token` / `userToken`).
+2. `Agregar favorito` → `201`.
+3. `Agregar favorito duplicado` → `409`.
+4. `Eliminar favorito` (como A) → `200`. **Obligatorio** antes del aislamiento: si A conserva el favorito, el paso 8 respondería `200` en lugar de `404`.
+5. `Registrar segundo usuario` → `Iniciar sesión (segundo usuario)` → usuario B (`token` / `secondUserToken`).
+6. `Agregar favorito` (como B, mismo `favoriteProductId`) → `201`.
+7. `Iniciar sesión (usuario)` otra vez → vuelve al token de A.
+8. `Eliminar favorito de otro usuario` → `404` (A no tiene ese favorito; solo B lo tiene).
+9. `Listar favoritos del segundo usuario (aislamiento)` → `200` y B sigue teniendo `favoriteProductId`.
+
+Opcional en cualquier momento con token de usuario: `Agregar favorito de producto inexistente` → `404`; `Listar favoritos sin token` → `401`.
+
+### Limpieza de datos de prueba
+
+- Los registros con correos `postman.user.*@example.com` / `postman.second.*@example.com` son descartables; puedes dejarlos o borrar esas filas en `users` si quieres una BD limpia.
+- Productos creados desde Postman (p. ej. categoría `Pruebas` o el creado en el flujo feliz) se pueden eliminar con `Eliminar producto` usando el `productId` guardado, o con el usuario admin vía SQL/seed.
+- Favoritos de prueba: `Eliminar favorito` con el usuario dueño, o cambia `favoriteProductId` a un producto que aún no esté marcado.
+- Tras una corrida, deja `token` / `userToken` / `adminToken` / `secondUserToken` vacíos si compartes el entorno exportado (no subas JWT).
+
+### Limitación: JWT vencido
+
+No hay una solicitud Postman de “token expirado” reproducible sin incrustar o generar un JWT firmado con `JWT_SECRET`. Eso expondría el secreto o no sería portable entre entornos. El caso sí está cubierto en `npm run test:auth` (firma un token con `expiresIn: '1ms'` en el servidor de pruebas).
+
+### Qué endpoints requieren JWT / admin
+
+| Endpoint | JWT | Rol |
+| --- | --- | --- |
+| `POST /api/auth/register` | No | — |
+| `POST /api/auth/login` | No | — |
+| `GET /api/auth/me` | Sí | cualquier autenticado |
+| `GET /api/products` | No | público |
+| `GET /api/products/:id` | No | público |
+| `GET /api/products?category=` | No | público |
+| `POST /api/products` | Sí | `admin` |
+| `PUT /api/products/:id` | Sí | `admin` |
+| `DELETE /api/products/:id` | Sí | `admin` |
+| `GET /api/favorites` | Sí | cualquier autenticado |
+| `POST /api/favorites` | Sí | cualquier autenticado |
+| `DELETE /api/favorites/:productId` | Sí | cualquier autenticado |
+
+La colección incluye scripts de prueba (Tests) para códigos HTTP, estructura de respuesta, restricción admin (`403`), errores `401`/`400`/`404`/`409` y registro repetible con correo único.
+
 ## Estado actual
 
 Incluido hasta ahora:
@@ -518,3 +655,4 @@ Incluido hasta ahora:
 - Middlewares de autenticación y autorización por roles
 - CRUD de productos con filtro por categoría
 - CRUD de favoritos por usuario autenticado
+- Colección y entorno de Postman documentados
