@@ -7,10 +7,13 @@
  * Limpia únicamente los registros creados por este script.
  */
 const http = require('http');
+const path = require('path');
+const { spawn } = require('child_process');
 const app = require('../src/app');
 const { closePool, testConnection, query } = require('../src/config/database');
 
 const suffix = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+const testServerScript = path.join(__dirname, 'run-test-server.js');
 
 const userA = {
   name: 'Usuario Favoritos A',
@@ -28,6 +31,7 @@ let passed = 0;
 let failed = 0;
 const createdUserIds = [];
 const createdFavoriteIds = [];
+const childProcesses = [];
 
 function assert(condition, label) {
   if (condition) {
@@ -64,6 +68,87 @@ async function request(baseUrl, method, pathName, { body, token } = {}) {
   }
 
   return { status: response.status, body: json };
+}
+
+async function getFreePort() {
+  const probe = http.createServer();
+  await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
+  const { port } = probe.address();
+  await new Promise((resolve, reject) => {
+    probe.close((error) => (error ? reject(error) : resolve()));
+  });
+  return port;
+}
+
+async function waitForHealth(baseUrl, timeoutMs = 8000) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const health = await request(baseUrl, 'GET', '/api/health');
+      if (health.status === 200) {
+        return;
+      }
+    } catch {
+      // El proceso aún no acepta conexiones.
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  throw new Error(`El servidor no respondió en ${baseUrl}`);
+}
+
+function startAppProcess(port) {
+  const child = spawn(process.execPath, [testServerScript], {
+    cwd: path.join(__dirname, '..'),
+    env: {
+      ...process.env,
+      PORT: String(port),
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  childProcesses.push(child);
+
+  let readyOutput = '';
+
+  child.stdout.on('data', (chunk) => {
+    readyOutput += chunk.toString();
+  });
+
+  child.stderr.on('data', (chunk) => {
+    process.stderr.write(chunk);
+  });
+
+  return {
+    child,
+    getOutput: () => readyOutput,
+  };
+}
+
+async function stopAppProcess(child) {
+  if (!child || child.killed || child.exitCode !== null) {
+    return child?.exitCode ?? null;
+  }
+
+  child.kill('SIGTERM');
+
+  await new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      if (child.exitCode === null) {
+        child.kill('SIGKILL');
+      }
+      resolve();
+    }, 3000);
+
+    child.once('exit', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+
+  return child.exitCode;
 }
 
 async function registerAndLogin(baseUrl, user) {
@@ -141,6 +226,7 @@ async function run() {
   let tokenA = null;
   let tokenB = null;
   let userIdA = null;
+  let restartedBaseUrl = null;
 
   try {
     const authA = await registerAndLogin(baseUrl, userA);
@@ -261,7 +347,6 @@ async function run() {
     assert(listB.body.data.count === 0, 'lista de B vacía');
 
     console.log('\n10) Usuario A no puede eliminar favoritos de usuario B');
-    // B agrega su propio favorito
     const addForB = await request(baseUrl, 'POST', '/api/favorites', {
       token: tokenB,
       body: { productId: productTwo.id },
@@ -271,8 +356,6 @@ async function run() {
       createdFavoriteIds.push(addForB.body.data.favorite.id);
     }
 
-    // A intenta borrar el productTwo de "sus" favoritos (no lo tiene) → 404
-    // Esto demuestra aislamiento: A no elimina el de B
     const deleteAsA = await request(
       baseUrl,
       'DELETE',
@@ -291,48 +374,82 @@ async function run() {
       'el favorito de B sigue existiendo'
     );
 
-    console.log('\n11) Los favoritos persisten tras reiniciar la aplicación');
+    console.log('\n11) Los favoritos persisten tras reiniciar el proceso Node.js');
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
 
-    const server2 = http.createServer(app);
-    await new Promise((resolve) => server2.listen(0, '127.0.0.1', resolve));
-    const port2 = server2.address().port;
-    const baseUrl2 = `http://127.0.0.1:${port2}`;
+    const restartPort = await getFreePort();
+    const firstLaunch = startAppProcess(restartPort);
+    const firstPid = firstLaunch.child.pid;
+    const restartedUrl = `http://127.0.0.1:${restartPort}`;
+    await waitForHealth(restartedUrl);
+    assert(
+      firstLaunch.getOutput().includes(`READY pid=${firstPid}`),
+      `proceso hijo listo (pid=${firstPid})`
+    );
 
-    const persisted = await request(baseUrl2, 'GET', '/api/favorites', {
+    const beforeKill = await request(restartedUrl, 'GET', '/api/favorites', {
       token: tokenA,
     });
-    assert(persisted.status === 200, 'HTTP 200 tras reinicio');
+    assert(beforeKill.status === 200, 'HTTP 200 en proceso hijo #1');
+    assert(
+      beforeKill.body.data.favorites.some(
+        (item) => item.productId === productOne.id
+      ),
+      'favorito visible antes del kill'
+    );
+
+    const exitCode = await stopAppProcess(firstLaunch.child);
+    assert(
+      firstLaunch.child.exitCode !== null || firstLaunch.child.signalCode != null,
+      'proceso hijo #1 terminó'
+    );
+    void exitCode;
+
+    const secondPort = await getFreePort();
+    const secondLaunch = startAppProcess(secondPort);
+    const secondPid = secondLaunch.child.pid;
+    const secondUrl = `http://127.0.0.1:${secondPort}`;
+    await waitForHealth(secondUrl);
+    assert(secondPid !== firstPid, `reinicio real de proceso (${firstPid} → ${secondPid})`);
+    assert(
+      secondLaunch.getOutput().includes(`READY pid=${secondPid}`),
+      `proceso hijo #2 listo (pid=${secondPid})`
+    );
+
+    const persisted = await request(secondUrl, 'GET', '/api/favorites', {
+      token: tokenA,
+    });
+    assert(persisted.status === 200, 'HTTP 200 tras reinicio de proceso');
     assert(
       persisted.body.data.favorites.some(
         (item) => item.productId === productOne.id
       ),
-      'favorito de A persistido'
+      'favorito de A persistido en PostgreSQL'
     );
+    restartedBaseUrl = secondUrl;
 
     console.log('\n12) Códigos HTTP de error correspondientes');
-    const invalidId = await request(baseUrl2, 'POST', '/api/favorites', {
+    const invalidId = await request(restartedBaseUrl, 'POST', '/api/favorites', {
       token: tokenA,
       body: { productId: 'abc' },
     });
     assert(invalidId.status === 400, 'id inválido → 400');
 
     const deleteMissing = await request(
-      baseUrl2,
+      restartedBaseUrl,
       'DELETE',
       '/api/favorites/999999',
       { token: tokenA }
     );
     assert(deleteMissing.status === 404, 'favorito inexistente → 404');
 
-    const invalidToken = await request(baseUrl2, 'GET', '/api/favorites', {
+    const invalidToken = await request(restartedBaseUrl, 'GET', '/api/favorites', {
       token: 'token.invalido',
     });
     assert(invalidToken.status === 401, 'token inválido → 401');
 
-    // Confirmar aislamiento en BD: el favorito de A pertenece a userIdA
     const ownership = await query(
       `
         SELECT user_id
@@ -344,14 +461,23 @@ async function run() {
     );
     assert(ownership.rows.length === 1, 'favorito de A ligado a su user_id JWT');
 
-    await new Promise((resolve, reject) => {
-      server2.close((error) => (error ? reject(error) : resolve()));
-    });
+    await stopAppProcess(secondLaunch.child);
   } finally {
+    for (const child of childProcesses) {
+      try {
+        await stopAppProcess(child);
+      } catch {
+        // ignore
+      }
+    }
+
     try {
       await cleanup();
     } catch (error) {
-      console.error('Aviso: limpieza parcial de favoritos/usuarios de prueba:', error.message);
+      console.error(
+        'Aviso: limpieza parcial de favoritos/usuarios de prueba:',
+        error.message
+      );
     }
     await closePool();
   }
@@ -365,6 +491,13 @@ async function run() {
 run().catch(async (error) => {
   console.error('Error ejecutando pruebas de favoritos:', error);
   process.exitCode = 1;
+  for (const child of childProcesses) {
+    try {
+      await stopAppProcess(child);
+    } catch {
+      // ignore
+    }
+  }
   try {
     await cleanup();
   } catch {
